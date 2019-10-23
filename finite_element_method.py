@@ -1,5 +1,6 @@
 import numpy as np
-from ross import fluid_flow as flow
+from ross.fluid_flow import fluid_flow as flow
+from ross.fluid_flow import fluid_flow_graphics
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
@@ -82,7 +83,7 @@ class FiniteElementMethod:
         self.matrix_z = np.arange(0, 1.0 + (1.0 / self.n_elements_z) / 2.0, 1.0 / self.n_elements_z)
         self.matrix_theta = np.arange(0, 2 * np.pi + ((2 * np.pi) / self.n_elements_theta) / 2.0,
                                       (2 * np.pi) / self.n_elements_theta)
-        self.matrix_z, self.matrix_theta = np.meshgrid(self.matrix_z, self.matrix_theta)
+        self.matrix_theta, self.matrix_z = np.meshgrid(self.matrix_theta, self.matrix_z)
         self.n_nodes = fluid_flow_object.nz * fluid_flow_object.ntheta
         self.n_known_nodes = fluid_flow_object.ntheta * 2
         self.n_elements = self.n_elements_z * self.n_elements_theta
@@ -93,9 +94,11 @@ class FiniteElementMethod:
         self.j_in_node = np.zeros(self.n_nodes, dtype=int)
         self.init_vectors()
         self.local_nodes_matrix = np.zeros(dtype=int, shape=(self.n_elements, 4))
+        self.build_local_nodes_matrix()
         self.n_equations = self.n_nodes - self.n_known_nodes
         self.z_in_node = np.zeros(self.n_nodes, dtype=float)
         self.theta_in_node = np.zeros(self.n_nodes, dtype=float)
+        self.calculate_nodes_positions()
         # Adding periodicity to the problem
         eq_theta_zero = 0
         k = -2
@@ -108,35 +111,35 @@ class FiniteElementMethod:
         self.K = np.zeros(shape=(self.n_equations + m, self.n_equations + m))
         self.build_k_matrix(m, eq_theta_zero, eq_theta_2pi)
         self.F = np.zeros(self.n_equations + m)
-        self.build_k_matrix(m, eq_theta_zero, eq_theta_2pi)
+        self.build_matrices()
         self.answer_vector = np.zeros(self.n_nodes)
         self.C = self.solve()
         self.build_answer_vector()
-        self.pressure_matrix = np.copy(fluid_flow_object.pressure_matrix)
+        self.pressure_matrix = np.copy(fluid_flow_object.p_mat_numerical)
         self.build_pressure_matrix()
 
     def init_vectors(self):
         k = 0
         m = 0
-        for i in range(0, self.fluid_flow_object.ntheta):
-            for j in range(0, self.fluid_flow_object.nz):
+        for i in range(0, self.fluid_flow_object.nz):
+            for j in range(0, self.fluid_flow_object.ntheta):
                 self.i_in_node[m] = i
                 self.j_in_node[m] = j
-                if i == 0:
+                if j == 0:
                     self.f_function_in_node[m] = (
-                        (self.fluid_flow_object.c0w[j][i] -
-                         self.fluid_flow_object.c0w[j][self.fluid_flow_object.ntheta - 1]) /
+                        (self.fluid_flow_object.c0w[i][j] -
+                         self.fluid_flow_object.c0w[i][self.fluid_flow_object.ntheta - 1]) /
                         self.fluid_flow_object.dtheta
                     )
                 else:
                     self.f_function_in_node[m] = (
-                            (self.fluid_flow_object.c0w[j][i] -
-                             self.fluid_flow_object.c0w[j][i - 1]) /
+                            (self.fluid_flow_object.c0w[i][j] -
+                             self.fluid_flow_object.c0w[i][j - 1]) /
                             self.fluid_flow_object.dtheta
                     )
-                if j == 0 or j == self.n_elements_z:
+                if i == 0 or i == self.n_elements_z:
                     self.equation_vector[m] = -1
-                    if j == 0:
+                    if i == 0:
                         self.q_function_in_node[m] = self.fluid_flow_object.p_in
                     else:
                         self.q_function_in_node[m] = self.fluid_flow_object.p_out
@@ -170,12 +173,9 @@ class FiniteElementMethod:
                 m = k + self.n_elements_z
 
     def calculate_nodes_positions(self):
-        k = 0
-        for j in range(0, self.n_elements_theta):
-            for i in range(0, self.n_elements_z):
-                self.z_in_node[k] = self.matrix_z[i][j]
-                self.theta_in_node[k] = self.matrix_theta[i][j]
-                k += 1
+        for i in range(0, self.n_nodes):
+            self.z_in_node[i] = self.matrix_z[self.i_in_node[i]][self.j_in_node[i]]
+            self.theta_in_node[i] = self.matrix_theta[self.i_in_node[i]][self.j_in_node[i]]
 
     def build_k_matrix(self, m, eq_theta_zero, eq_theta_2pi):
         for i in range(0, m):
@@ -214,7 +214,7 @@ class FiniteElementMethod:
     def build_answer_vector(self):
         k = 0
         for i in range(0, self.n_nodes):
-            if self.equation_vector[i] != -1:
+            if self.equation_vector[i] == -1:
                 self.answer_vector[i] = self.q_function_in_node[i]
             else:
                 self.answer_vector[i] = self.C[k]
@@ -241,8 +241,31 @@ class FiniteElementMethod:
         plt.show()
 
 
+if __name__ == "__main__":
+    nz = 16
+    ntheta = 512
+    nradius = 11
+    omega = 100. * 2 * np.pi / 60
+    p_in = 0.
+    p_out = 0.
+    radius_rotor = 0.1999996
+    radius_stator = 0.1999996 + 0.000194564
+    length = (1 / 10) * (2 * radius_stator)
+    eccentricity = 0.0001
+    visc = 0.015
+    rho = 860.
+    my_fluid_flow = flow.PressureMatrix(nz, ntheta, nradius, length, omega, p_in,
+                                        p_out, radius_rotor, radius_stator,
+                                        visc, rho, eccentricity=eccentricity)
 
-
+    my_finite_element = FiniteElementMethod(my_fluid_flow)
+    my_fluid_flow.p_mat_numerical = np.copy(my_finite_element.pressure_matrix)
+    my_fluid_flow.numerical_pressure_matrix_available = True
+    ax = fluid_flow_graphics.matplot_pressure_theta(my_fluid_flow, z=int(my_fluid_flow.nz/2))
+    my_fluid_flow.calculate_pressure_matrix_numerical()
+    ax = fluid_flow_graphics.matplot_pressure_theta(my_fluid_flow, z=int(my_fluid_flow.nz/2), ax=ax,
+                                                    color="black")
+    plt.show()
 
 
 
