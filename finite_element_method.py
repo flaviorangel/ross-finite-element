@@ -9,6 +9,86 @@ from matplotlib.ticker import LinearLocator, FormatStrFormatter
 gq3 = (3**0.5)/float(3)
 phiOrd = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
 
+qab11 = np.ones(shape=(4, 4), dtype=float)
+qab12 = np.ones(shape=(4, 4), dtype=float)
+qab21 = np.ones(shape=(4, 4), dtype=float)
+qab22 = np.ones(shape=(4, 4), dtype=float)
+
+qab11[0][0] = 2
+qab11[0][1] = -2
+qab11[0][2] = -1
+qab11[0][3] = 1
+qab11[1][0] = -2
+qab11[1][1] = 2
+qab11[1][2] = 1
+qab11[1][3] = -1
+qab11[2][0] = -1
+qab11[2][1] = 1
+qab11[2][2] = 2
+qab11[2][3] = -2
+qab11[3][0] = 1
+qab11[3][1] = -1
+qab11[3][2] = -2
+qab11[3][3] = 2
+
+qab12[0][0] = 1
+qab12[0][1] = 1
+qab12[0][2] = -1
+qab12[0][3] = -1
+qab12[1][0] = -1
+qab12[1][1] = -1
+qab12[1][2] = 1
+qab12[1][3] = 1
+qab12[2][0] = -1
+qab12[2][1] = -1
+qab12[2][2] = 1
+qab12[2][3] = 1
+qab12[3][0] = 1
+qab12[3][1] = 1
+qab12[3][2] = -1
+qab12[3][3] = -1
+
+qab21[0][0] = 1
+qab21[0][1] = -1
+qab21[0][2] = -1
+qab21[0][3] = 1
+qab21[1][0] = 1
+qab21[1][1] = -1
+qab21[1][2] = -1
+qab21[1][3] = 1
+qab21[2][0] = -1
+qab21[2][1] = 1
+qab21[2][2] = 1
+qab21[2][3] = -1
+qab21[3][0] = -1
+qab21[3][1] = 1
+qab21[3][2] = 1
+qab21[3][3] = -1
+
+qab22[0][0] = 2
+qab22[0][1] = 1
+qab22[0][2] = -1
+qab22[0][3] = -2
+qab22[1][0] = 1
+qab22[1][1] = 2
+qab22[1][2] = -2
+qab22[1][3] = -1
+qab22[2][0] = -1
+qab22[2][1] = -2
+qab22[2][2] = 2
+qab22[2][3] = 1
+qab22[3][0] = -2
+qab22[3][1] = -1
+qab22[3][2] = 1
+qab22[3][3] = 2
+
+for ig in range(0, 4):
+    for jg in range(0, 4):
+        qab11[ig][jg] = qab11[ig][jg] * (1/6)
+        qab12[ig][jg] = qab12[ig][jg] * (1/4)
+        qab21[ig][jg] = qab21[ig][jg] * (1/4)
+        qab22[ig][jg] = qab22[ig][jg] * (1/6)
+
 
 def phi_a(ksa, na, ks, n):
     return (1 + ksa * ks) * (1 + na * n) / float(4)
@@ -51,12 +131,17 @@ class Element:
         self.Fe = np.dot(self.F_Matrix, self.f_vector)
         self.q_vector = np.dot(self.Ke, self.q)
         self.Fe -= self.q_vector
-        for i in range(0, 4):
-            for j in range(0, 4):
-                if i > j:
-                    self.Ke[i][j] = 0
+
+    def calculate_B_J(self, st, nd):
+        B = np.zeros(shape=(2, 4))
+        for k in range(0, 4):
+            B[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
+            B[1][k] = d_phi_a_d_n(phiOrd[k][0], phiOrd[k][1], st, nd)
+        J = np.dot(self.M, np.transpose(B))
+        return B, J
 
     def g_for_f_function(self, st, nd, i, j):
+        new_B, new_J = self.calculate_B_J(st, nd)
         B = np.zeros(shape=(2, 4))
         for k in range(0, 4):
             B[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
@@ -64,6 +149,16 @@ class Element:
         J = np.dot(self.M, np.transpose(B))
         term1 = phi_a(phiOrd[i][0], phiOrd[i][1], st, nd)
         term2 = phi_a(phiOrd[j][0], phiOrd[j][1], st, nd)
+        for j in range(0, 2):
+            for k in range(0, 2):
+                if new_J[k][j] != J[k][j]:
+                    print(J, new_J)
+                    print(k, j)
+            for i in range(0, 4):
+                if new_B[j][i] != B[j][i]:
+                    print(j, i)
+                    print(B, new_B)
+                    print(J, new_J)
         return term1 * term2 * np.linalg.det(J)
 
     def g_function(self, st, nd):
@@ -77,30 +172,50 @@ class Element:
         QRB = np.dot(self.Q, np.dot(R, B))
         return np.dot(JBTRT, QRB)
 
+    # def g_function(self, st, nd):
+    #     B = np.zeros(shape=(2, 4))
+    #     for k in range(0, 4):
+    #         B[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
+    #         B[1][k] = d_phi_a_d_n(phiOrd[k][0], phiOrd[k][1], st, nd)
+    #     J = np.dot(self.M, np.transpose(B))
+    #     J_inv = np.linalg.inv(J)
+    #     GradPHIXY = np.dot(J_inv, B)
+    #     return np.dot(np.transpose(np.dot(self.Q, GradPHIXY)), GradPHIXY)
+
+    # def calcule_Ke(self):
+    #     dx0 = self.M[0][1] - self.M[0][0]
+    #     dx1 = self.M[0][2] - self.M[0][3]
+    #     dy0 = self.M[1][2] - self.M[1][1]
+    #     dy1 = self.M[1][2] - self.M[1][1]
+    #     dx_dy_coord = [[], []]
+    #     for i in range(0, 2):
+    #         for j in range(0, 2):
+
+
 
 class FiniteElementMethod:
     def __init__(self, fluid_flow_object, theta_max=None,
                  book_task=False, f_function=None, q_function=None):
         fluid_flow_object.calculate_coefficients()
         self.fluid_flow_object = fluid_flow_object
-        self.n_elements_z = fluid_flow_object.nz - 1
-        self.n_elements_theta = fluid_flow_object.ntheta - 1
-        self.matrix_z = np.arange(0, fluid_flow_object.length + (fluid_flow_object.length /
-                                                                 self.n_elements_z) / 2.0,
-                                  fluid_flow_object.length / self.n_elements_z)
+        self.n_elements_y = fluid_flow_object.nz - 1
+        self.n_elements_x = fluid_flow_object.ntheta - 1
+        self.matrix_y = np.arange(0, fluid_flow_object.length + (fluid_flow_object.length /
+                                                                 self.n_elements_y) / 2.0,
+                                  fluid_flow_object.length / self.n_elements_y)
         if theta_max is None:
-            self.matrix_theta = np.arange(0, 2 * np.pi + ((2 * np.pi) / self.n_elements_theta) / 2.0,
-                                          (2 * np.pi) / self.n_elements_theta)
+            self.matrix_x = np.arange(0, 2 * np.pi + ((2 * np.pi) / self.n_elements_x) / 2.0,
+                                          (2 * np.pi) / self.n_elements_x)
         else:
-            self.matrix_theta = np.arange(0, theta_max + (theta_max / self.n_elements_theta) / 2.0,
-                                          theta_max / self.n_elements_theta)
-        self.matrix_theta, self.matrix_z = np.meshgrid(self.matrix_theta, self.matrix_z)
+            self.matrix_x = np.arange(0, theta_max + (theta_max / self.n_elements_x) / 2.0,
+                                          theta_max / self.n_elements_x)
+        self.matrix_x, self.matrix_y = np.meshgrid(self.matrix_x, self.matrix_y)
         self.n_nodes = fluid_flow_object.nz * fluid_flow_object.ntheta
         if not book_task:
             self.n_known_nodes = fluid_flow_object.ntheta * 2
         else:
             self.n_known_nodes = self.fluid_flow_object.nz * 2 + 2 * (self.fluid_flow_object.ntheta - 2)
-        self.n_elements = self.n_elements_z * self.n_elements_theta
+        self.n_elements = self.n_elements_y * self.n_elements_x
         self.equation_vector = np.zeros(self.n_nodes, dtype=int)
         self.q_function_in_node = np.zeros(self.n_nodes, dtype=float)
         self.f_function_in_node = np.zeros(self.n_nodes, dtype=float)
@@ -194,7 +309,7 @@ class FiniteElementMethod:
                                  self.fluid_flow_object.c0w[i][j - 1]) /
                                 self.fluid_flow_object.dtheta
                         )
-                    if i == 0 or i == self.n_elements_z:
+                    if i == 0 or i == self.n_elements_y:
                         self.equation_vector[m] = -1
                         if i == 0:
                             if book_task is None:
@@ -210,31 +325,31 @@ class FiniteElementMethod:
     def build_local_nodes_matrix(self):
         k = 0
         j = 1
-        m = self.n_elements_theta
+        m = self.n_elements_x
         for i in range(0, self.n_elements):
             self.local_nodes_matrix[i][0] = k
             self.local_nodes_matrix[i][1] = k + 1
             k += 1
             if k >= m:
-                k = (self.n_elements_theta + 1) * j
+                k = (self.n_elements_x + 1) * j
                 j += 1
-                m = k + self.n_elements_theta
-        k = self.n_elements_theta + 1
+                m = k + self.n_elements_x
+        k = self.n_elements_x + 1
         j = 2
-        m = k + self.n_elements_theta
+        m = k + self.n_elements_x
         for i in range(0, self.n_elements):
             self.local_nodes_matrix[i][3] = k
             self.local_nodes_matrix[i][2] = k + 1
             k += 1
             if k >= m:
-                k = (self.n_elements_theta + 1) * j
+                k = (self.n_elements_x + 1) * j
                 j += 1
-                m = k + self.n_elements_theta
+                m = k + self.n_elements_x
 
     def calculate_nodes_positions(self):
         for i in range(0, self.n_nodes):
-            self.z_in_node[i] = self.matrix_z[self.i_in_node[i]][self.j_in_node[i]]
-            self.theta_in_node[i] = self.matrix_theta[self.i_in_node[i]][self.j_in_node[i]]
+            self.z_in_node[i] = self.matrix_y[self.i_in_node[i]][self.j_in_node[i]]
+            self.theta_in_node[i] = self.matrix_x[self.i_in_node[i]][self.j_in_node[i]]
 
     def build_k_matrix(self, m, eq_theta_zero, eq_theta_2pi, book_task):
         if not book_task:
@@ -257,9 +372,9 @@ class FiniteElementMethod:
                 list_f[a] = self.f_function_in_node[self.local_nodes_matrix[e][a]]
             c_matrix = np.zeros(shape=(2, 2))
             if not book_task:
-                c_matrix[0][0] = self.fluid_flow_object.c2[self.i_in_node[e]][self.j_in_node[e]]
-                c_matrix[1][1] = self.fluid_flow_object.c1[self.i_in_node[e]][self.j_in_node[e]]
-                this_element = Element(list_z, list_theta, list_q, list_f, c_matrix)
+                c_matrix[0][0] = self.fluid_flow_object.c1[self.i_in_node[e]][self.j_in_node[e]]
+                c_matrix[1][1] = self.fluid_flow_object.c2[self.i_in_node[e]][self.j_in_node[e]]
+                this_element = Element(list_theta, list_z, list_q, list_f, c_matrix)
             else:
                 c_matrix[0][0] = 2
                 c_matrix[0][1] = 1
@@ -271,6 +386,10 @@ class FiniteElementMethod:
                     i = self.equation_vector[self.local_nodes_matrix[e][a]]
                     j = self.equation_vector[self.local_nodes_matrix[e][b]]
                     if i != -1 and j != -1:
+                        # if i > j:
+                        #     temp = i
+                        #     i = j
+                        #     j = temp
                         self.K[i][j] += this_element.Ke[a][b]
                 if self.equation_vector[self.local_nodes_matrix[e][a]] != -1:
                     self.F[self.equation_vector[self.local_nodes_matrix[e][a]]] += this_element.Fe[a]
@@ -297,13 +416,13 @@ class FiniteElementMethod:
     def matplot_3d_graphic(self):
         fig = plt.figure()
         ax = fig.gca(projection='3d')
-        surf = ax.plot_surface(self.matrix_z, self.matrix_theta, self.pressure_matrix,
+        surf = ax.plot_surface(self.matrix_y, self.matrix_x, self.pressure_matrix,
                                cmap=cm.coolwarm, linewidth=0, antialiased=False, alpha=0.7)
         ax.zaxis.set_major_locator(LinearLocator(10))
         ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
         fig.colorbar(surf, shrink=0.5, aspect=5)
-        ax.scatter(np.append(self.z_in_node, self.matrix_z[-1]),
-                   np.append(self.theta_in_node, self.matrix_theta[-1]), self.answer_vector, c='r',
+        ax.scatter(np.append(self.z_in_node, self.matrix_y[-1]),
+                   np.append(self.theta_in_node, self.matrix_x[-1]), self.answer_vector, c='r',
                    marker='^')
         plt.show()
 
@@ -350,9 +469,26 @@ def book_example1():
     print("F")
     print(my_finite_element.F)
     print("K:")
-    print(my_finite_element.K)
+    print(my_finite_element.K*6)
     print("C")
     print(my_finite_element.C)
+
+    answer_vector = np.zeros(my_finite_element.n_equations)
+
+    m = -1
+    for i in range(0, my_finite_element.fluid_flow_object.nz):
+        for j in range(0, my_finite_element.fluid_flow_object.ntheta):
+            m += 1
+            if my_finite_element.equation_vector[m] == -1:
+                continue
+            else:
+                answer_vector[my_finite_element.equation_vector[m]] = solution(my_finite_element.theta_in_node[m], my_finite_element.z_in_node[m])
+    print("Answer")
+    print(answer_vector)
+    error = 0
+    for i in range(0, my_finite_element.n_equations):
+        error += (answer_vector[i] - my_finite_element.C[i])*(answer_vector[i] - my_finite_element.C[i])
+    print(error/my_finite_element.n_equations)
 
 
 def ross_finite_element_solution():
@@ -375,18 +511,15 @@ def ross_finite_element_solution():
     my_finite_element = FiniteElementMethod(my_fluid_flow)
     my_fluid_flow.p_mat_numerical = np.copy(my_finite_element.pressure_matrix)
     my_fluid_flow.numerical_pressure_matrix_available = True
-    # my_fluid_flow.calculate_pressure_matrix_analytical()
+    my_fluid_flow.calculate_pressure_matrix_analytical()
     ax = fluid_flow_graphics.matplot_pressure_theta(my_fluid_flow, z=int(my_fluid_flow.nz / 2))
-    # my_fluid_flow.calculate_pressure_matrix_numerical()
-    # ax = fluid_flow_graphics.matplot_pressure_theta(my_fluid_flow, z=int(my_fluid_flow.nz/2), ax=ax,
-    #                                                 color="black")
+    my_fluid_flow.calculate_pressure_matrix_numerical()
+    ax = fluid_flow_graphics.matplot_pressure_theta(my_fluid_flow, z=int(my_fluid_flow.nz/2), ax=ax,
+                                                    color="black")
     plt.show()
 
 
 if __name__ == "__main__":
-    book_example1()
-    # ross_finite_element_solution()
-
-
-
+    # book_example1()
+    ross_finite_element_solution()
 
