@@ -275,6 +275,8 @@ class FiniteElementMethod:
         self.build_pressure_matrix()
 
     def calculate_i_and_j_in_node(self):
+        """Calculates matching i and j for each node.
+        """
         m = 0
         for i in range(0, self.fluid_flow_object.nz):
             for j in range(0, self.fluid_flow_object.ntheta):
@@ -283,12 +285,15 @@ class FiniteElementMethod:
                 m += 1
 
     def init_vectors(self):
+        """Inits vectors f_function_in_node (containing the values for the right side of equation in each
+        node), q_function_in_node (containing the values of known nodes or 0),
+        and equation_vector (containing the number of each equation per node or -1, in case of
+        known nodes).
+        """
         k = 0
         m = 0
         for i in range(0, self.fluid_flow_object.nz):
             for j in range(0, self.fluid_flow_object.ntheta):
-                self.i_in_node[m] = i
-                self.j_in_node[m] = j
                 self.f_function_in_node[m] = (
                         (self.fluid_flow_object.c0w[i][j] -
                          self.fluid_flow_object.c0w[i][j - 1]) /
@@ -306,6 +311,9 @@ class FiniteElementMethod:
                 m += 1
 
     def build_local_nodes_matrix(self):
+        """The local_nodes_matrix holds the actual number of the four nodes of each element.
+        Each element has four nodes, numbered counterclockwise, starting with the lowest (theta, z).
+        """
         k = 0
         j = 1
         m = self.n_elements_x
@@ -330,11 +338,15 @@ class FiniteElementMethod:
                 m = k + self.n_elements_x
 
     def calculate_nodes_positions(self):
+        """For each node, calculates the values of theta and z in that node.
+        """
         for i in range(0, self.n_nodes):
             self.z_in_node[i] = self.matrix_y[self.i_in_node[i]][self.j_in_node[i]]
             self.theta_in_node[i] = self.matrix_x[self.i_in_node[i]][self.j_in_node[i]]
 
     def build_k_matrix(self, m, eq_theta_zero, eq_theta_2pi):
+        """Adds the periodicity to the K matrix.
+        """
         for i in range(0, m):
             self.K[self.n_equations + i][eq_theta_zero] = 1
             self.K[self.n_equations + i][eq_theta_2pi] = -1
@@ -342,6 +354,8 @@ class FiniteElementMethod:
             eq_theta_2pi += 1
 
     def build_matrices(self):
+        """Build the global matrices F and K.
+        """
         for e in range(0, self.n_elements):
             list_z = np.zeros(4)
             list_theta = np.zeros(4)
@@ -366,9 +380,13 @@ class FiniteElementMethod:
                     self.F[self.equation_vector[self.local_nodes_matrix[e][a]]] += this_element.Fe[a]
 
     def solve(self):
+        """Solves the linear system.
+        """
         return np.linalg.solve(self.K, self.F)
 
     def build_answer_vector(self):
+        """Build the answer_vector, that holds the pressure value in each node.
+        """
         k = 0
         for i in range(0, self.n_nodes):
             if self.equation_vector[i] == -1:
@@ -378,6 +396,8 @@ class FiniteElementMethod:
                 k += 1
 
     def build_pressure_matrix(self):
+        """Builds the pressure matrix.
+        """
         k = 0
         for i in range(0, self.fluid_flow_object.nz):
             for j in range(0, self.fluid_flow_object.ntheta):
@@ -398,9 +418,9 @@ class FiniteElementMethod:
         plt.show()
 
 
-def ross_finite_element_solution():
-    nz = 4
-    ntheta = 4096
+def ross_finite_element_solution(nz, ntheta):
+    """Executes the finite element method for a given grid.
+    """
     nradius = 11
     omega = 100. * 2 * np.pi / 60
     p_in = 0.
@@ -427,6 +447,8 @@ def ross_finite_element_solution():
 
 
 def finite_element_example():
+    """An example of one finite element.
+    """
     list_x = [0, 0.333, 0.333, 0]
     list_y = [0, 0, 0.333, 0.333]
     list_q = [0, 0.866, 0, 0]
@@ -437,7 +459,7 @@ def finite_element_example():
 
 
 if __name__ == "__main__":
-    ross_finite_element_solution()
+    ross_finite_element_solution(4, 128)
 
 
 
