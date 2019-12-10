@@ -126,22 +126,22 @@ class Element:
             self.M[1][j] = list_y[j]
             self.q[j] = list_q[j]
             self.f_vector[j] = list_f[j]
-        self.Ke += self.g_function(-gq3, -gq3)
-        self.Ke += self.g_function(gq3, -gq3)
-        self.Ke += self.g_function(-gq3, gq3)
-        self.Ke += self.g_function(gq3, gq3)
+        self.Ke += self.gaussian_quadrature_matrix_term_k(-gq3, -gq3)
+        self.Ke += self.gaussian_quadrature_matrix_term_k(gq3, -gq3)
+        self.Ke += self.gaussian_quadrature_matrix_term_k(-gq3, gq3)
+        self.Ke += self.gaussian_quadrature_matrix_term_k(gq3, gq3)
         self.F_Matrix = np.zeros(shape=(4, 4))
         for i in range(0, 4):
             for j in range(0, 4):
-                self.F_Matrix[i][j] += self.g_for_f_function(-gq3, -gq3, i, j)
-                self.F_Matrix[i][j] += self.g_for_f_function(gq3, -gq3, i, j)
-                self.F_Matrix[i][j] += self.g_for_f_function(-gq3, gq3, i, j)
-                self.F_Matrix[i][j] += self.g_for_f_function(gq3, gq3, i, j)
+                self.F_Matrix[i][j] += self.gaussian_quadrature_term_f(-gq3, -gq3, i, j)
+                self.F_Matrix[i][j] += self.gaussian_quadrature_term_f(gq3, -gq3, i, j)
+                self.F_Matrix[i][j] += self.gaussian_quadrature_term_f(-gq3, gq3, i, j)
+                self.F_Matrix[i][j] += self.gaussian_quadrature_term_f(gq3, gq3, i, j)
         self.Fe = np.dot(self.F_Matrix, self.f_vector)
         self.q_vector = np.dot(self.Ke, self.q)
         self.Fe -= self.q_vector
 
-    def g_for_f_function(self, st, nd, i, j):
+    def gaussian_quadrature_term_f(self, st, nd, i, j):
         """Calculates one of the four terms that will be added to F_Matrix in position (i, j).
         This matrix is the integral of phi_i * phi_j calculated using Gaussian quadrature,
         multiplied by J (transform matrix).
@@ -161,18 +161,18 @@ class Element:
         >>> nd = -st
         >>> my_finite_element = finite_element_example()
         >>> F_Matrix = np.zeros(shape=(4, 4))
-        >>> F_Matrix[0][0] += my_finite_element.g_for_f_function(st, nd, 0, 0)
+        >>> F_Matrix[0][0] += my_finite_element.gaussian_quadrature_term_f(st, nd, 0, 0)
         """
-        B = np.zeros(shape=(2, 4))
+        derivatives_matrix = np.zeros(shape=(2, 4))
         for k in range(0, 4):
-            B[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
-            B[1][k] = d_phi_a_d_n(phiOrd[k][0], phiOrd[k][1], st, nd)
-        J = np.dot(self.M, np.transpose(B))
+            derivatives_matrix[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
+            derivatives_matrix[1][k] = d_phi_a_d_n(phiOrd[k][0], phiOrd[k][1], st, nd)
+        transform_matrix = np.dot(self.M, np.transpose(derivatives_matrix))
         term1 = phi_a(phiOrd[i][0], phiOrd[i][1], st, nd)
         term2 = phi_a(phiOrd[j][0], phiOrd[j][1], st, nd)
-        return term1 * term2 * np.linalg.det(J)
+        return term1 * term2 * np.linalg.det(transform_matrix)
 
-    def g_function(self, st, nd):
+    def gaussian_quadrature_matrix_term_k(self, st, nd):
         """Calculates one of the four matrices that will be added to Ke matrix.
         Ke matrix is the integral of (nabla phi_a)*Q*(nabla phi_b), calculated using Gaussian quadrature,
         multiplied by J (transform matrix).
@@ -189,20 +189,44 @@ class Element:
         >>> nd = -st
         >>> my_finite_element = finite_element_example()
         >>> Ke = np.zeros(shape=(4, 4))
-        >>> Ke += my_finite_element.g_function(st, nd)
+        >>> Ke += my_finite_element.gaussian_quadrature_matrix_term_k(st, nd)
         """
-        B = np.zeros(shape=(2, 4))
+        derivatives_matrix = np.zeros(shape=(2, 4))
         for k in range(0, 4):
-            B[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
-            B[1][k] = d_phi_a_d_n(phiOrd[k][0], phiOrd[k][1], st, nd)
-        J = np.dot(self.M, np.transpose(B))
-        R = np.transpose(np.linalg.inv(J))
-        JBTRT = np.linalg.det(J) * np.dot(np.transpose(B), np.transpose(R))
-        QRB = np.dot(self.Q, np.dot(R, B))
-        return np.dot(JBTRT, QRB)
+            derivatives_matrix[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
+            derivatives_matrix[1][k] = d_phi_a_d_n(phiOrd[k][0], phiOrd[k][1], st, nd)
+        jacob_matrix = np.dot(self.M, np.transpose(derivatives_matrix))
+        inv_jacob_matrix = np.transpose(np.linalg.inv(jacob_matrix))
+        term1 = np.linalg.det(jacob_matrix) * np.dot(np.transpose(derivatives_matrix), np.transpose(inv_jacob_matrix))
+        term2 = np.dot(self.Q, np.dot(inv_jacob_matrix, derivatives_matrix))
+        return np.dot(term1, term2)
 
 
 class FiniteElementMethod:
+    """This class runs the finite element method, taking a FluidFlow object from ross, and
+    calculates its pressure matrix.
+
+    Parameters
+    ----------
+    fluid_flow_object: a FluidFlow object.
+
+    Returns
+    -------
+    An object containing finite element method attributes.
+
+    Attributes
+    ----------
+    pressure_matrix: matrix of floats.
+        The product of the finite element method.
+    K, C, F: matrices of floats.
+        A n x n linear system, in which n is the number of unknowns.
+
+    Examples
+    --------
+    >>> from ross.fluid_flow.fluid_flow import fluid_flow_example
+    >>> my_fluid_flow = fluid_flow_example()
+    >>> my_fem = FiniteElementMethod(my_fluid_flow)
+    """
     def __init__(self, fluid_flow_object):
         fluid_flow_object.calculate_coefficients()
         self.fluid_flow_object = fluid_flow_object
