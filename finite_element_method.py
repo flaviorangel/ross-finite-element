@@ -2,9 +2,9 @@ import numpy as np
 from ross.fluid_flow import fluid_flow as flow
 from ross.fluid_flow import fluid_flow_graphics
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 from matplotlib.ticker import LinearLocator, FormatStrFormatter
+import time
 
 # The square root of 3 over 3, applied in Gaussian quadrature.
 gq3 = (3**0.5)/float(3)
@@ -196,10 +196,10 @@ class Element:
             derivatives_matrix[0][k] = d_phi_a_d_ks(phiOrd[k][0], phiOrd[k][1], st, nd)
             derivatives_matrix[1][k] = d_phi_a_d_n(phiOrd[k][0], phiOrd[k][1], st, nd)
         jacob_matrix = np.dot(self.M, np.transpose(derivatives_matrix))
-        inv_jacob_matrix = np.transpose(np.linalg.inv(jacob_matrix))
-        term1 = np.linalg.det(jacob_matrix) * np.dot(np.transpose(derivatives_matrix), np.transpose(inv_jacob_matrix))
+        inv_jacob_matrix = np.linalg.inv(jacob_matrix)
+        term1 = np.linalg.det(jacob_matrix) * np.dot(inv_jacob_matrix, derivatives_matrix)
         term2 = np.dot(self.Q, np.dot(inv_jacob_matrix, derivatives_matrix))
-        return np.dot(term1, term2)
+        return np.dot(np.transpose(term1), term2)
 
 
 class FiniteElementMethod:
@@ -254,20 +254,22 @@ class FiniteElementMethod:
         self.local_nodes_matrix = np.zeros(dtype=int, shape=(self.n_elements, 4))
         self.build_local_nodes_matrix()
         self.n_equations = self.n_nodes - self.n_known_nodes
+        self.K = np.zeros(shape=(self.n_equations, self.n_equations))
+        self.F = np.zeros(self.n_equations)
 
         # Adding periodicity to the problem
-        eq_theta_zero = 0
-        k = -2
-        m = 0
-        while self.equation_vector[k] != -1:
-            k -= 1
-            m += 1
-        eq_theta_2pi = self.equation_vector[-2] + 1
-        self.K = np.zeros(shape=(self.n_equations + m, self.n_equations + m))
-        self.build_k_matrix(m, eq_theta_zero, eq_theta_2pi)
-        self.n_equations += m
-        self.F = np.zeros(self.n_equations)
+        m = fluid_flow_object.nz - 2
+        theta_zero = 0
+        theta_2pi = fluid_flow_object.ntheta - 1
         self.build_matrices()
+        for i in range(0, m):
+            periodicity_line = np.zeros(self.n_equations)
+            periodicity_line[theta_zero] = 1
+            periodicity_line[theta_2pi] = -1
+            self.K[theta_2pi] = periodicity_line
+            theta_zero += fluid_flow_object.ntheta
+            theta_2pi += fluid_flow_object.ntheta
+
         self.answer_vector = np.zeros(self.n_nodes)
         self.C = self.solve()
         self.build_answer_vector()
@@ -344,15 +346,6 @@ class FiniteElementMethod:
             self.z_in_node[i] = self.matrix_y[self.i_in_node[i]][self.j_in_node[i]]
             self.theta_in_node[i] = self.matrix_x[self.i_in_node[i]][self.j_in_node[i]]
 
-    def build_k_matrix(self, m, eq_theta_zero, eq_theta_2pi):
-        """Adds the periodicity to the K matrix.
-        """
-        for i in range(0, m):
-            self.K[self.n_equations + i][eq_theta_zero] = 1
-            self.K[self.n_equations + i][eq_theta_2pi] = -1
-            eq_theta_zero += 1
-            eq_theta_2pi += 1
-
     def build_matrices(self):
         """Build the global matrices F and K.
         """
@@ -363,6 +356,10 @@ class FiniteElementMethod:
             list_f = np.zeros(4)
             for a in range(0, 4):
                 list_z[a] = self.z_in_node[self.local_nodes_matrix[e][a]]
+                list_theta[a] = self.theta_in_node[self.local_nodes_matrix[e][a]]
+                i = self.i_in_node[self.local_nodes_matrix[e][a]]
+                j = self.j_in_node[self.local_nodes_matrix[e][a]]
+                list_theta[a] = self.fluid_flow_object.gama[i][j]
                 list_theta[a] = self.theta_in_node[self.local_nodes_matrix[e][a]]
                 list_q[a] = self.q_function_in_node[self.local_nodes_matrix[e][a]]
                 list_f[a] = self.f_function_in_node[self.local_nodes_matrix[e][a]]
@@ -402,6 +399,8 @@ class FiniteElementMethod:
         for i in range(0, self.fluid_flow_object.nz):
             for j in range(0, self.fluid_flow_object.ntheta):
                 self.pressure_matrix[i][j] = self.answer_vector[k]
+                if self.pressure_matrix[i][j] < 0:
+                    self.pressure_matrix[i][j] = 0
                 k += 1
 
     def matplot_3d_graphic(self):
@@ -412,38 +411,93 @@ class FiniteElementMethod:
         ax.zaxis.set_major_locator(LinearLocator(10))
         ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
         fig.colorbar(surf, shrink=0.5, aspect=5)
-        ax.scatter(np.append(self.z_in_node, self.matrix_y[-1]),
-                   np.append(self.theta_in_node, self.matrix_x[-1]), self.answer_vector, c='r',
-                   marker='^')
         plt.show()
 
 
-def ross_finite_element_solution(nz, ntheta):
-    """Executes the finite element method for a given grid.
-    """
-    nradius = 11
-    omega = 100. * 2 * np.pi / 60
-    p_in = 0.
-    p_out = 0.
-    radius_rotor = 0.1999996
-    radius_stator = 0.1999996 + 0.000194564
-    length = (1 / 10) * (2 * radius_stator)
-    eccentricity = 0.0001
-    visc = 0.015
-    rho = 860.
-    my_fluid_flow = flow.PressureMatrix(nz, ntheta, nradius, length, omega, p_in,
-                                        p_out, radius_rotor, radius_stator,
-                                        visc, rho, eccentricity=eccentricity)
-
+def ross_finite_element_solution(my_fluid_flow):
+    """Executes the finite element method (FEM) for a given FluidFlow (object defining the grid).
+    Also executes the finite difference method (FDM) and return comparison results.
+    Parameters
+    ----------
+    my_fluid_flow: a FluidFlow object.
+    Returns
+    -------
+    List of floats containing: the relative error for the FEM, the relative error for the FDM,
+    time spent for the FEM, time spent for the FDM.
+    # """
+    start_time = time.time()
     my_finite_element = FiniteElementMethod(my_fluid_flow)
+    time_fem = time.time() - start_time
     my_fluid_flow.p_mat_numerical = np.copy(my_finite_element.pressure_matrix)
     my_fluid_flow.numerical_pressure_matrix_available = True
     my_fluid_flow.calculate_pressure_matrix_analytical()
     ax = fluid_flow_graphics.matplot_pressure_theta(my_fluid_flow, z=int(my_fluid_flow.nz / 2))
-    # my_fluid_flow.calculate_pressure_matrix_numerical()
-    # ax = fluid_flow_graphics.matplot_pressure_theta(my_fluid_flow, z=int(my_fluid_flow.nz/2), ax=ax,
-    #                                                 color="black")
     plt.show()
+    # my_finite_element.matplot_3d_graphic()
+    max_reference_value = max(my_fluid_flow.p_mat_analytical[int(my_fluid_flow.nz / 2)])
+    position = 0
+    for position in range(0, my_fluid_flow.ntheta):
+        if my_fluid_flow.p_mat_analytical[int(my_fluid_flow.nz / 2)][position] == max_reference_value:
+            break
+    r_error_fem = abs((my_fluid_flow.p_mat_numerical[int(my_fluid_flow.nz / 2)][position] - max_reference_value) /
+                      max_reference_value)
+    start_time = time.time()
+    my_fluid_flow.calculate_pressure_matrix_numerical()
+    time_fdm = time.time() - start_time
+    r_error_fdm = abs((my_fluid_flow.p_mat_numerical[int(my_fluid_flow.nz / 2)][position] - max_reference_value) /
+                      max_reference_value)
+
+    return [r_error_fem, r_error_fdm, time_fem, time_fdm]
+
+
+def instantiate_fluid_flow_object(number_of_theta_nodes, number_of_z_nodes, length_type):
+    """Instantiates a FluidFlow object, either short or long, using the same parameters in ROSS tests.
+
+    Parameters
+    ----------
+    number_of_theta_nodes: int
+    number_of_z_nodes: int
+    length_type: bool
+        Defines if short (True) or long (False) bearing.
+
+    Returns
+    -------
+    A FluidFlow object
+    """
+    nradius = 11
+    omega = 100.0 * 2 * np.pi / 60
+    p_in = 0.0
+    p_out = 0.0
+    eccentricity = 0.0001
+    visc = 0.015
+    rho = 860.0
+    if length_type:
+        radius_rotor = 0.1999996
+        radius_stator = 0.1999996 + 0.000194564
+        length = (1 / 10) * (2 * radius_stator)
+    else:
+        p_in = 1
+        p_out = 0
+        radius_rotor = 1
+        h = 0.000194564
+        radius_stator = radius_rotor + h
+        length = 8 * 2 * radius_stator
+
+    return flow.FluidFlow(
+        number_of_z_nodes,
+        number_of_theta_nodes,
+        nradius,
+        length,
+        omega,
+        p_in,
+        p_out,
+        radius_rotor,
+        radius_stator,
+        visc,
+        rho,
+        eccentricity=eccentricity,
+        immediately_calculate_pressure_matrix_numerically=False
+    )
 
 
 def finite_element_example():
@@ -458,9 +512,74 @@ def finite_element_example():
     return my_finite_element
 
 
-if __name__ == "__main__":
-    ross_finite_element_solution(4, 128)
+def grid_convergence(theta_or_z, type_of_bearing):
+    """Executes grid convergence and print error.
 
+    Parameters
+    ----------
+    theta_or_z: bool
+        Defines if either theta (True) or z (False) will be the focus along convergence.
+    type_of_bearing: bool
+        Defines if short (True) or long (False) bearing.
+
+    Returns
+    -------
+    None
+    """
+    if theta_or_z:
+        nz = 2
+        while nz < 16:
+            nz += 2
+            ntheta = 4
+            ntheta_list = []
+            error_fem_list = []
+            error_fdm_list = []
+            time_fem_list = []
+            time_fdm_list = []
+            while ntheta < 512:
+                ntheta = ntheta * 2
+                ntheta_list.append(ntheta)
+                fluid_flow_obj = instantiate_fluid_flow_object(ntheta, nz, type_of_bearing)
+                results = ross_finite_element_solution(fluid_flow_obj)
+                error_fem_list.append(results[0])
+                error_fdm_list.append(results[1])
+                time_fem_list.append(results[2])
+                time_fdm_list.append(results[3])
+            print("nthetas_z" + str(nz) + " =", ntheta_list)
+            print("error_fem_z" + str(nz) + " =", error_fem_list)
+            print("error_fdm_z" + str(nz) + " =", error_fdm_list)
+            print("time_fem_z" + str(nz) + " =", time_fem_list)
+            print("time_fdm_z" + str(nz) + " =", time_fdm_list)
+            print()
+    else:
+        ntheta = 4
+        while ntheta < 512:
+            nz_list = []
+            error_fem_list = []
+            error_fdm_list = []
+            time_fem_list = []
+            time_fdm_list = []
+            ntheta = ntheta * 2
+            nz = 2
+            while nz < 16:
+                nz = nz + 2
+                nz_list.append(nz)
+                fluid_flow_obj = instantiate_fluid_flow_object(ntheta, nz, type_of_bearing)
+                results = ross_finite_element_solution(fluid_flow_obj)
+                error_fem_list.append(results[0])
+                error_fdm_list.append(results[1])
+                time_fem_list.append(results[2])
+                time_fdm_list.append(results[3])
+            print("nz_t" + str(ntheta) + " =", nz_list)
+            print("error_fem_t" + str(ntheta) + " =", error_fem_list)
+            print("error_fdm_t" + str(ntheta) + " =", error_fdm_list)
+            print("time_fem_t" + str(ntheta) + " =", time_fem_list)
+            print("time_fdm_t" + str(ntheta) + " =", time_fdm_list)
+            print()
+
+
+if __name__ == "__main__":
+    grid_convergence(True, True)
 
 
 
